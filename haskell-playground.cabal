@@ -1,0 +1,34 @@
+cabal-version:      2.4
+name:               haskell-playground
+version:            0.1.0.0
+
+synopsis:           A playground for my Haskell projects
+
+bug-reports:        https://github.com/lasnikr/haskell-playground
+
+license:            NONE
+author:             lasnikr
+maintainer:         lasnikprogram@gmail.com
+
+copyright:          lasnikr
+category:           Development
+
+executable latexToAnki
+    main-is:          LatexToAnki.hs
+
+    build-depends:    base ^>=4.16.4.0
+                    , http-client
+                    , http-client-tls
+                    , http-types
+                    , bytestring
+                      
+    hs-source-dirs:   .
+    default-language: Haskell2010
+
+executable ballsToBins
+    main-is:          BallsToBins.hs
+
+    build-depends:    base ^>=4.16.4.0
+                      
+    hs-source-dirs:   .
+    default-language: Haskell2010

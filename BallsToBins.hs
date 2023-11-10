@@ -1,4 +1,3 @@
-module BallsToBins where
 import Data.List (find)
 
 type BallsInBins = [[Char]]

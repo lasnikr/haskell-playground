@@ -1,3 +1,5 @@
 /.vscode
 *.hi
 *.o
+*.htm
+/dist-newstyle
