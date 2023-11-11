@@ -32,3 +32,11 @@ executable ballsToBins
                       
     hs-source-dirs:   .
     default-language: Haskell2010
+
+executable IEEE754
+    main-is:          IEEE754.hs
+
+    build-depends:    base ^>=4.16.4.0
+                      
+    hs-source-dirs:   .
+    default-language: Haskell2010
