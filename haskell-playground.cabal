@@ -20,7 +20,9 @@ executable latexToAnki
                     , http-client
                     , http-client-tls
                     , http-types
-                    , bytestring
+                    , tagsoup
+                    , utf8-string
+                    , text
                       
     hs-source-dirs:   .
     default-language: Haskell2010
