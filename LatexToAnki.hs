@@ -4,7 +4,7 @@ import Network.HTTP.Types.Status (
       Status (statusMessage))
 import Text.HTML.TagSoup (parseTags, Tag, sections, (~==), fromTagText, (~/=), isTagText, innerText, renderTags)
 import Data.ByteString.Lazy.UTF8 (toString)
-import Data.Text(pack, unpack, replace, Text)
+import qualified Data.Text as T
 import Network.HTTP.Client
     ( httpLbs,
       newManager,
@@ -24,11 +24,14 @@ import Data.Aeson
       Value(String, Bool),
       KeyValue((.=)),
       ToJSON(toJSON) )
-import qualified Data.ByteString.Lazy.Char8 as L8
-import qualified Data.Map as Map
+import Data.Map
+    (
+      Map,
+      fromList
+    )
 
-data RequestData = RequestData { action :: String, params :: Map.Map Key Value, version :: Int } deriving Show
-data ResponseData = ResponseData { errorField :: Maybe String, resultField :: Maybe Int } deriving Show
+data RequestData = RequestData { action :: String, params :: Map Key Value, version :: Int } deriving Show
+data ResponseData = ResponseData { errorField :: Maybe String, resultField :: Maybe [Maybe Int] } deriving Show
 
 instance ToJSON RequestData where
     toJSON (RequestData action params version) = object ["action" .= action, "params" .= params, "version" .= version]
@@ -36,10 +39,10 @@ instance ToJSON RequestData where
 instance FromJSON ResponseData where
     parseJSON = withObject "ResponseData" $ \v -> ResponseData <$> v .:? "error" <*> v .:? "result"
 
-request :: String -> Map.Map Key Value -> RequestData
+request :: String -> Map Key Value -> RequestData
 request action params = RequestData action params 6
 
-invoke :: String -> Map.Map Key Value -> IO (Maybe Int)
+invoke :: String -> Map Key Value -> IO (Maybe [Maybe Int])
 invoke action params = do
     manager <- newManager tlsManagerSettings
     initialRequest <- parseRequest "http://127.0.0.1:8765"
@@ -47,43 +50,40 @@ invoke action params = do
     let requestJson = encode (request action params)
         httpRequest = initialRequest { method = "POST", requestBody = RequestBodyLBS requestJson }
 
+    print requestJson
     httpResponse <- httpLbs httpRequest manager
 
-    let maybeResponseData = decode (responseBody httpResponse) :: Maybe ResponseData
+    let maybeResponseData = decode (responseBody httpResponse)
     case maybeResponseData of
         Nothing -> error "response has an unexpected number of fields"
         Just responseData -> case errorField responseData of
             Just err -> error err
             Nothing -> return (resultField responseData)
 
-addNote :: Value -> IO ()
-addNote json = do
-    res <- invoke "addNote" params
+addNotes :: [Value] -> IO ()
+addNotes json = do
+    res <- invoke "addNotes" params
     case res of
       Nothing -> putStrLn "response is missing required result field"
       Just result -> putStrLn $ "ID of card: " ++ show result
-    where note = object [
-            "deckName" .= String "test",
+    where params = fromList ["notes" .= json]
+
+createNote :: String -> String -> Value
+createNote front back = object [
+            "deckName" .= String "mathe9",
             "modelName" .= String "Basic",
-            "fields" .= object ["Front" .= String "loslsss", "Back" .= String "bacsks"],
+            "fields" .= object ["Front" .= String "lol", "Back" .= String "hello"],
             "options" .= object [
-                "allowDuplicate" .= Bool True,
+                "allowDuplicate" .= Bool False,
                 "duplicateScope" .= String "deck",
                 "duplicateScopeOptions" .= object [
-                    "deckName" .= String "Default",
+                    "deckName" .= String "mathe9",
                     "checkChildren" .= Bool False,
                     "checkAllModels" .= Bool False
                 ]
             ],
-            "tags" .= [String "test tag"]
+            "tags" .= [String "test"]
             ]
-          params = Map.fromList ["note" .= note]
-
--- _ <- invoke "createDeck" (Map.fromList [("deck", String "test1")])
--- maybeResult <- invoke "deckNames" Map.empty
--- case maybeResult of
---     Nothing -> putStrLn "response is missing required result field"
---     Just result -> putStrLn $ "got list of decks: " ++ show result
 
 openUrl :: String -> Manager -> IO (Either Int String)
 openUrl str manager = do
@@ -96,7 +96,7 @@ openUrl str manager = do
       | responseCode >= 200 && responseCode < 300 = Right . toString $ responseBody response
       | otherwise = Left responseCode
   return ret
-  
+
 main :: IO ()
 main = do
   manager <- newManager tlsManagerSettings
@@ -105,8 +105,8 @@ main = do
   response <- openUrl url manager
   case response of
     Left status -> putStrLn $ "Request wasn't successful. Status code was: " ++ show status
-    Right body -> putStrLn . concat . getResults $ parseTags body
-  -- addNotes, call with json as parameter, json from new function with takes results of important tags
+    Right body -> addNotes $ map (createNote "test") (getResults $ parseTags body)
+  -- TODO addNotes, call with json as parameter, json from new function with takes results of important tags
 
 getResults :: [Tag String] -> [String]
 getResults tags = map f $ sections (~== ("<div class='theorem'>" :: String)) tags
@@ -115,10 +115,24 @@ f :: [Tag String] -> String
 f tags = fixLatex $ renderTags (takeWhile (~/= ("</div>" :: String)) tags) ++ "</div>"
 
 fixLatex :: String -> String
-fixLatex = unpack . mathSyntax . replaceCmds . pack
+fixLatex = T.unpack . mathSyntax . replaceCmds . T.pack
 
-mathSyntax :: Text -> Text
-mathSyntax = replace "$" "<anki-mathjax>" . replace "$$" "<anki-mathjax block=\"true\">"
+mathSyntax :: T.Text -> T.Text
+mathSyntax text 
+  | T.length st > 0 = mathSyntax $ replaceOne "$$" "</anki-mathjax>" . replaceOne "$$" "<anki-mathjax> block=trrJDFJDJ" $ text
+  | '$' `T.elem` text = mathSyntax $ replaceOne "$" "</anki-mathjax>" . replaceOne "$" "<anki-mathjax>" $ text
+  | otherwise = text
+    where 
+      (_, st) = T.breakOn "$$" text
 
-replaceCmds :: Text -> Text
-replaceCmds = replace "realnum" "mathbb{R}" . replace "natnum" "mathbb{N}" 
+
+replaceCmds :: T.Text -> T.Text
+replaceCmds = T.replace "realnum" "mathbb{R}" . T.replace "natnum" "mathbb{N}"
+
+-- https://stackoverflow.com/a/14922122
+replaceOne :: T.Text -> T.Text -> T.Text -> T.Text
+replaceOne pattern substitution text
+  | T.null back = text 
+  | otherwise = T.concat [front, substitution, T.drop (T.length pattern) back] 
+    where
+      (front, back) = T.breakOn pattern text
