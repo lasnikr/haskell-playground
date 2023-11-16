@@ -30,7 +30,7 @@ import Data.Map
       fromList
     )
 
-data RequestData = RequestData { action :: String, params :: Map Key Value, version :: Int } deriving Show
+data RequestData = RequestData { action :: String, params :: Value, version :: Int } deriving Show
 data ResponseData = ResponseData { errorField :: Maybe String, resultField :: Maybe [Maybe Int] } deriving Show
 
 instance ToJSON RequestData where
@@ -39,10 +39,10 @@ instance ToJSON RequestData where
 instance FromJSON ResponseData where
     parseJSON = withObject "ResponseData" $ \v -> ResponseData <$> v .:? "error" <*> v .:? "result"
 
-request :: String -> Map Key Value -> RequestData
+request :: String -> Value -> RequestData
 request action params = RequestData action params 6
 
-invoke :: String -> Map Key Value -> IO (Maybe [Maybe Int])
+invoke :: String -> Value -> IO (Maybe [Maybe Int])
 invoke action params = do
     manager <- newManager tlsManagerSettings
     initialRequest <- parseRequest "http://127.0.0.1:8765"
@@ -65,24 +65,24 @@ addNotes json = do
     res <- invoke "addNotes" params
     case res of
       Nothing -> putStrLn "response is missing required result field"
-      Just result -> putStrLn $ "ID of card: " ++ show result
-    where params = fromList ["notes" .= json]
+      Just result -> putStrLn $ "ID of cards: " ++ show result
+    where params = object ["notes" .= json]
 
 createNote :: String -> String -> Value
-createNote front back = object [
-            "deckName" .= String "mathe9",
-            "modelName" .= String "Basic",
-            "fields" .= object ["Front" .= String "lol", "Back" .= String "hello"],
+createNote tags text  = object [
+            "deckName" .= String "mathe1",
+            "modelName" .= String "HPI",
+            "fields" .= object ["Text" .= text],
             "options" .= object [
                 "allowDuplicate" .= Bool False,
                 "duplicateScope" .= String "deck",
                 "duplicateScopeOptions" .= object [
-                    "deckName" .= String "mathe9",
+                    "deckName" .= String "Default",
                     "checkChildren" .= Bool False,
                     "checkAllModels" .= Bool False
                 ]
             ],
-            "tags" .= [String "test"]
+            "tags" .= [tags]
             ]
 
 openUrl :: String -> Manager -> IO (Either Int String)
@@ -105,11 +105,14 @@ main = do
   response <- openUrl url manager
   case response of
     Left status -> putStrLn $ "Request wasn't successful. Status code was: " ++ show status
-    Right body -> addNotes $ map (createNote "test") (getResults $ parseTags body)
-  -- TODO addNotes, call with json as parameter, json from new function with takes results of important tags
+    Right body -> do 
+      putStrLn "Which tags would you like to give (seperated by spaces)?"
+      tags <- getLine
+      addNotes $ map (createNote tags) $ getResults $ parseTags body
 
 getResults :: [Tag String] -> [String]
-getResults tags = map f $ sections (~== ("<div class='theorem'>" :: String)) tags
+getResults tags = map f $ sections (\tag -> tag ~== ("<div class='theorem'>" :: String) 
+  || tag ~== ("<div class='definition'>" :: String)) tags
 
 f :: [Tag String] -> String
 f tags = fixLatex $ renderTags (takeWhile (~/= ("</div>" :: String)) tags) ++ "</div>"
@@ -119,15 +122,26 @@ fixLatex = T.unpack . mathSyntax . replaceCmds . T.pack
 
 mathSyntax :: T.Text -> T.Text
 mathSyntax text 
-  | T.length st > 0 = mathSyntax $ replaceOne "$$" "</anki-mathjax>" . replaceOne "$$" "<anki-mathjax> block=trrJDFJDJ" $ text
+  | T.length st > 0 = mathSyntax $ replaceOne "$$" "</anki-mathjax>" . replaceOne "$$" "<anki-mathjax block=\"true\">" $ text
   | '$' `T.elem` text = mathSyntax $ replaceOne "$" "</anki-mathjax>" . replaceOne "$" "<anki-mathjax>" $ text
   | otherwise = text
     where 
       (_, st) = T.breakOn "$$" text
 
-
 replaceCmds :: T.Text -> T.Text
-replaceCmds = T.replace "realnum" "mathbb{R}" . T.replace "natnum" "mathbb{N}"
+replaceCmds = T.replace "\\realnum" "\\mathbb{R}"
+            . T.replace "\\natnum" "\\mathbb{N}"
+            . T.replace "\\integers" "\\mathbb{Z}"
+            . T.replace "\\rationals" "\\mathbb{Q}"
+            . T.replace "\\less" "\\lt"
+            . T.replace "\\modulo" "\\; \\operatorname{mod} \\;"
+            . T.replace "\\isom" "\\cong"
+            . T.replace "\\qed" "\\Box"
+            . T.replace "\\CalF" "\\mathcal{F}"
+            . T.replace "\\CalX" "\\mathcal{X}"
+            . T.replace "\\bigO" "\\mathcal{O}\\mathclose{\\left(#1\\right)}"
+            . T.replace "\\bigOSymbol" "\\mathcal{O}"
+            . T.replace "\\Bij" "\\mathcal{B}"
 
 -- https://stackoverflow.com/a/14922122
 replaceOne :: T.Text -> T.Text -> T.Text -> T.Text
